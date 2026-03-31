@@ -68,43 +68,68 @@ def send_request(server_ip, server_port, data):
         return json.loads(resp.read().decode("utf-8"))
 
 
-def rustdesk_auto_accept():
+def find_accept_button(hwnd):
     """
-    백그라운드 스레드: RustDesk 연결 요청 수락 버튼 자동 클릭.
-    RustDesk 창이 실제로 감지된 경우에만 클릭하며,
-    창이 없을 때는 마우스를 일절 움직이지 않는다.
+    scourt_help.exe 창에서 '수락' 텍스트를 가진 버튼 핸들 탐색.
+    반환값: 버튼 hwnd 또는 None
+    """
+    import win32gui
+    found = []
+
+    def enum_child(child_hwnd, _):
+        try:
+            text = win32gui.GetWindowText(child_hwnd)
+            cls = win32gui.GetClassName(child_hwnd)
+            if "수락" in text and "Button" in cls:
+                found.append(child_hwnd)
+        except Exception:
+            pass
+
+    win32gui.EnumChildWindows(hwnd, enum_child, None)
+    return found[0] if found else None
+
+
+def scourt_auto_accept():
+    """
+    백그라운드 스레드: scourt_help.exe 창에서 '수락' 버튼을 찾아 자동 클릭.
+    scourt_help.exe 프로세스가 없거나 수락 버튼이 없으면 마우스를 움직이지 않는다.
     """
     try:
-        import pyautogui
-        import pygetwindow as gw
+        import win32gui
+        import win32con
+        import win32process
+        import psutil
     except ImportError:
         return
 
-    pyautogui.FAILSAFE = False
-    clicked_ids = set()  # 이미 수락한 창 ID 중복 클릭 방지
+    clicked_hwnds = set()
 
     while True:
         try:
-            # "연결 요청" 또는 "RustDesk" 제목의 창만 탐색
-            candidates = (
-                gw.getWindowsWithTitle("연결 요청") +
-                gw.getWindowsWithTitle("Connection Request") +
-                gw.getWindowsWithTitle("RustDesk")
-            )
-            for win in candidates:
-                try:
-                    win_id = (win.left, win.top, win.width, win.height)
-                    if not win.visible or win.width <= 0 or win_id in clicked_ids:
-                        continue
-                    # 수락 버튼: RustDesk 연결 요청 창 하단 중앙
-                    win.activate()
-                    time.sleep(0.2)
-                    center_x = win.left + win.width // 2
-                    button_y = win.top + win.height - 55
-                    pyautogui.click(center_x, button_y)
-                    clicked_ids.add(win_id)
-                except Exception:
-                    pass
+            # scourt_help.exe 실행 중인 PID 수집
+            scourt_pids = {
+                p.pid for p in psutil.process_iter(['pid', 'name'])
+                if 'scourt_help' in (p.info['name'] or '').lower()
+            }
+
+            if scourt_pids:
+                def enum_top(hwnd, _):
+                    if not win32gui.IsWindowVisible(hwnd):
+                        return
+                    try:
+                        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                        if pid not in scourt_pids:
+                            return
+                        btn_hwnd = find_accept_button(hwnd)
+                        if btn_hwnd and btn_hwnd not in clicked_hwnds:
+                            # 버튼 메시지로 클릭 (마우스 이동 없음)
+                            win32gui.SendMessage(btn_hwnd, win32con.BM_CLICK, 0, 0)
+                            clicked_hwnds.add(btn_hwnd)
+                    except Exception:
+                        pass
+
+                win32gui.EnumWindows(enum_top, None)
+
         except Exception:
             pass
 
@@ -232,8 +257,8 @@ class SupportClientApp:
         )
         sub_label.pack()
 
-        # RustDesk 자동 수락 스레드 시작
-        t = threading.Thread(target=rustdesk_auto_accept, daemon=True)
+        # scourt_help.exe 수락 버튼 자동 클릭 스레드 시작
+        t = threading.Thread(target=scourt_auto_accept, daemon=True)
         t.start()
 
 
