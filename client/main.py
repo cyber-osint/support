@@ -68,123 +68,73 @@ def send_request(server_ip, server_port, data):
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _build_accept_templates():
-    """
-    한국어 시스템 폰트로 '수락' 버튼 템플릿 이미지 목록을 생성한다.
-    다양한 폰트 크기와 버튼 배경색 조합을 모두 만들어 반환한다.
-    """
-    from PIL import Image, ImageDraw, ImageFont
-
-    font_candidates = [
-        r"C:\Windows\Fonts\malgun.ttf",    # 맑은 고딕
-        r"C:\Windows\Fonts\gulim.ttc",     # 굴림
-        r"C:\Windows\Fonts\batang.ttc",    # 바탕
-    ]
-    styles = [
-        ((240, 240, 240), (0,   0,   0  )),  # 회색 버튼 / 검정 글씨
-        ((255, 255, 255), (0,   0,   0  )),  # 흰 버튼 / 검정 글씨
-        ((0,  120, 215 ), (255, 255, 255)),  # Windows 파란 버튼
-        ((204, 204, 204), (0,   0,   0  )),  # 연회색 버튼
-        ((0,  114, 198 ), (255, 255, 255)),  # 법원 파란 버튼
-    ]
-
-    templates = []
-    for fp in font_candidates:
-        if not os.path.exists(fp):
-            continue
-        for size in [9, 10, 11, 12, 13]:
-            try:
-                font = ImageFont.truetype(fp, size)
-                probe = Image.new("RGB", (1, 1))
-                bbox = ImageDraw.Draw(probe).textbbox((0, 0), "수락", font=font)
-                tw = bbox[2] - bbox[0]
-                th = bbox[3] - bbox[1]
-                for bg, fg in styles:
-                    img = Image.new("RGB", (tw + 16, th + 8), bg)
-                    ImageDraw.Draw(img).text((8, 4), "수락", fill=fg, font=font)
-                    templates.append(img)
-            except Exception:
-                pass
-    return templates
-
-
 def scourt_auto_accept():
     """
-    백그라운드 스레드: PyAutoGUI 이미지 인식으로 화면의 '수락' 버튼을 찾아 클릭.
-    이미지 인식에 실패하면 Win32 API 폴백으로 재시도한다.
+    백그라운드 스레드: Windows UI Automation으로 '수락' 버튼을 찾아 자동 클릭.
+    접근성 트리(Accessibility Tree) 탐색이므로 모니터 위치/개수와 무관하게 동작.
+    UI Automation 실패 시 Win32 API 폴백으로 재시도한다.
     """
     try:
-        import pyautogui
+        import uiautomation as auto
         import win32gui
         import win32con
         import win32api
     except ImportError:
         return
 
-    pyautogui.FAILSAFE = False
-    templates = _build_accept_templates()
-    clicked_positions = set()  # (x//20, y//20) 단위로 중복 클릭 방지
-
-    def try_click(cx, cy):
-        key = (cx // 20, cy // 20)
-        if key in clicked_positions:
-            return False
-        pyautogui.click(cx, cy)
-        clicked_positions.add(key)
-        return True
+    clicked_handles = set()
 
     while True:
         try:
-            # ── 1차: PyAutoGUI 이미지 인식 ──────────────────────────
-            clicked = False
-            for tmpl in templates:
+            # ── 1차: UI Automation — 접근성 트리에서 '수락' 버튼 탐색 ──
+            # 화면 좌표 불필요, 모니터 개수·위치 무관
+            btn = auto.ButtonControl(searchDepth=10, Name="수락")
+            if btn.Exists(maxSearchSeconds=0):
+                handle = btn.NativeWindowHandle
+                if handle not in clicked_handles:
+                    btn.Click()
+                    clicked_handles.add(handle)
+                    time.sleep(0.5)
+                    continue
+
+        except Exception:
+            pass
+
+        try:
+            # ── 2차 폴백: Win32 창 탐색 ─────────────────────────────
+            found_buttons = []
+
+            def enum_child(child_hwnd, _):
                 try:
-                    loc = pyautogui.locateOnScreen(
-                        tmpl, confidence=0.7, grayscale=True
-                    )
-                    if loc:
-                        cx, cy = pyautogui.center(loc)
-                        if try_click(int(cx), int(cy)):
-                            clicked = True
-                        break
+                    if "수락" in win32gui.GetWindowText(child_hwnd):
+                        found_buttons.append(child_hwnd)
                 except Exception:
                     pass
 
-            # ── 2차 폴백: Win32 창 탐색 ─────────────────────────────
-            if not clicked:
-                found_buttons = []
-
-                def enum_child(child_hwnd, _):
+            def enum_top(hwnd, _):
+                if win32gui.IsWindowVisible(hwnd):
                     try:
-                        if "수락" in win32gui.GetWindowText(child_hwnd):
-                            found_buttons.append(child_hwnd)
+                        win32gui.EnumChildWindows(hwnd, enum_child, None)
                     except Exception:
                         pass
 
-                def enum_top(hwnd, _):
-                    if win32gui.IsWindowVisible(hwnd):
-                        try:
-                            win32gui.EnumChildWindows(hwnd, enum_child, None)
-                        except Exception:
-                            pass
+            win32gui.EnumWindows(enum_top, None)
 
-                win32gui.EnumWindows(enum_top, None)
-
-                for btn_hwnd in found_buttons:
-                    try:
-                        win32gui.SendMessage(btn_hwnd, win32con.BM_CLICK, 0, 0)
-                        rect = win32gui.GetWindowRect(btn_hwnd)
-                        cx = (rect[0] + rect[2]) // 2
-                        cy = (rect[1] + rect[3]) // 2
-                        key = (cx // 20, cy // 20)
-                        if key not in clicked_positions:
-                            win32api.SetCursorPos((cx, cy))
-                            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-                            time.sleep(0.05)
-                            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
-                            clicked_positions.add(key)
-                    except Exception:
-                        pass
+            for btn_hwnd in found_buttons:
+                if btn_hwnd in clicked_handles:
+                    continue
+                try:
+                    win32gui.SendMessage(btn_hwnd, win32con.BM_CLICK, 0, 0)
+                    rect = win32gui.GetWindowRect(btn_hwnd)
+                    cx = (rect[0] + rect[2]) // 2
+                    cy = (rect[1] + rect[3]) // 2
+                    win32api.SetCursorPos((cx, cy))
+                    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                    time.sleep(0.05)
+                    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+                    clicked_handles.add(btn_hwnd)
+                except Exception:
+                    pass
 
         except Exception:
             pass

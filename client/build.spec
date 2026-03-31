@@ -7,8 +7,7 @@ a = Analysis(
     datas=[],
     hiddenimports=[
         'win32gui', 'win32con', 'win32process', 'win32api', 'psutil',
-        'pyautogui', 'pyscreeze', 'PIL', 'PIL.Image', 'PIL.ImageDraw',
-        'PIL.ImageFont', 'PIL.ImageGrab', 'cv2', 'numpy',
+        'uiautomation', 'comtypes', 'comtypes.client',
     ],
     hookspath=[],
     hooksconfig={},
