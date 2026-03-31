@@ -68,37 +68,15 @@ def send_request(server_ip, server_port, data):
         return json.loads(resp.read().decode("utf-8"))
 
 
-def find_accept_button(hwnd):
-    """
-    scourt_help.exe 창에서 '수락' 텍스트를 가진 버튼 핸들 탐색.
-    반환값: 버튼 hwnd 또는 None
-    """
-    import win32gui
-    found = []
-
-    def enum_child(child_hwnd, _):
-        try:
-            text = win32gui.GetWindowText(child_hwnd)
-            cls = win32gui.GetClassName(child_hwnd)
-            if "수락" in text and "Button" in cls:
-                found.append(child_hwnd)
-        except Exception:
-            pass
-
-    win32gui.EnumChildWindows(hwnd, enum_child, None)
-    return found[0] if found else None
-
-
 def scourt_auto_accept():
     """
-    백그라운드 스레드: scourt_help.exe 창에서 '수락' 버튼을 찾아 자동 클릭.
-    scourt_help.exe 프로세스가 없거나 수락 버튼이 없으면 마우스를 움직이지 않는다.
+    백그라운드 스레드: 화면의 모든 창에서 '수락' 버튼을 찾아 자동 클릭.
+    BM_CLICK 메시지 전송 + 실제 마우스 클릭 두 방법 모두 시도한다.
     """
     try:
         import win32gui
         import win32con
-        import win32process
-        import psutil
+        import win32api
     except ImportError:
         return
 
@@ -106,34 +84,51 @@ def scourt_auto_accept():
 
     while True:
         try:
-            # scourt_help.exe 실행 중인 PID 수집
-            scourt_pids = {
-                p.pid for p in psutil.process_iter(['pid', 'name'])
-                if 'scourt_help' in (p.info['name'] or '').lower()
-            }
+            found_buttons = []
 
-            if scourt_pids:
-                def enum_top(hwnd, _):
-                    if not win32gui.IsWindowVisible(hwnd):
-                        return
-                    try:
-                        _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                        if pid not in scourt_pids:
-                            return
-                        btn_hwnd = find_accept_button(hwnd)
-                        if btn_hwnd and btn_hwnd not in clicked_hwnds:
-                            # 버튼 메시지로 클릭 (마우스 이동 없음)
-                            win32gui.SendMessage(btn_hwnd, win32con.BM_CLICK, 0, 0)
-                            clicked_hwnds.add(btn_hwnd)
-                    except Exception:
-                        pass
+            def enum_child(child_hwnd, _):
+                try:
+                    text = win32gui.GetWindowText(child_hwnd)
+                    cls = win32gui.GetClassName(child_hwnd)
+                    if "수락" in text:
+                        found_buttons.append(child_hwnd)
+                except Exception:
+                    pass
 
-                win32gui.EnumWindows(enum_top, None)
+            def enum_top(hwnd, _):
+                if not win32gui.IsWindowVisible(hwnd):
+                    return
+                try:
+                    win32gui.EnumChildWindows(hwnd, enum_child, None)
+                except Exception:
+                    pass
+
+            win32gui.EnumWindows(enum_top, None)
+
+            for btn_hwnd in found_buttons:
+                if btn_hwnd in clicked_hwnds:
+                    continue
+                try:
+                    # 방법 1: BM_CLICK 메시지 (포커스 없이도 동작)
+                    win32gui.SendMessage(btn_hwnd, win32con.BM_CLICK, 0, 0)
+
+                    # 방법 2: 버튼 중앙으로 마우스 이동 후 실제 클릭
+                    rect = win32gui.GetWindowRect(btn_hwnd)
+                    cx = (rect[0] + rect[2]) // 2
+                    cy = (rect[1] + rect[3]) // 2
+                    win32api.SetCursorPos((cx, cy))
+                    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                    time.sleep(0.05)
+                    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+
+                    clicked_hwnds.add(btn_hwnd)
+                except Exception:
+                    pass
 
         except Exception:
             pass
 
-        time.sleep(2)
+        time.sleep(1)
 
 
 class SupportClientApp:
