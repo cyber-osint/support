@@ -24,7 +24,8 @@ def get_base_dir():
 # Flask 앱 초기화
 app = Flask(
     __name__,
-    template_folder=os.path.join(get_base_dir(), "templates")
+    template_folder=os.path.join(get_base_dir(), "templates"),
+    static_folder=os.path.join(get_base_dir(), "static")
 )
 app.config["SECRET_KEY"] = "support-server-secret-key"
 
@@ -151,8 +152,8 @@ def open_browser():
 
 if __name__ == "__main__":
     import logging
-    # werkzeug 개발 서버 경고 및 접속 로그 억제
-    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    # werkzeug 접속 로그 활성화 (디버그 모드)
+    logging.getLogger("werkzeug").setLevel(logging.DEBUG)
 
     # DB 초기화
     database.init_db()
@@ -165,4 +166,4 @@ if __name__ == "__main__":
     print("  http://localhost:5000")
     print("=" * 50)
 
-    socketio.run(app, host="0.0.0.0", port=5000, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True, allow_unsafe_werkzeug=True)
