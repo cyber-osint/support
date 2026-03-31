@@ -71,7 +71,7 @@ def send_request(server_ip, server_port, data):
 def scourt_auto_accept():
     """
     백그라운드 스레드: Windows UI Automation으로 '수락' 버튼을 찾아 자동 클릭.
-    접근성 트리(Accessibility Tree) 탐색이므로 모니터 위치/개수와 무관하게 동작.
+    Flutter 앱 기준 TextControl 탐색, MOUSEEVENTF_ABSOLUTE로 멀티모니터 정확 클릭.
     UI Automation 실패 시 Win32 API 폴백으로 재시도한다.
     """
     try:
@@ -79,28 +79,62 @@ def scourt_auto_accept():
         import win32gui
         import win32con
         import win32api
+        import ctypes
     except ImportError:
         return
 
-    clicked_rects = set()  # (cx//20, cy//20) 기반 중복 클릭 방지
+    # 프로세스를 Per-Monitor DPI Aware로 설정 — 멀티모니터 좌표 정확도 확보
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+    # 가상 스크린 전체 크기 (모든 모니터 합산)
+    def get_virtual_screen():
+        SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN = 76, 77
+        SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN = 78, 79
+        left   = ctypes.windll.user32.GetSystemMetrics(SM_XVIRTUALSCREEN)
+        top    = ctypes.windll.user32.GetSystemMetrics(SM_YVIRTUALSCREEN)
+        width  = ctypes.windll.user32.GetSystemMetrics(SM_CXVIRTUALSCREEN)
+        height = ctypes.windll.user32.GetSystemMetrics(SM_CYVIRTUALSCREEN)
+        return left, top, width, height
+
+    def abs_click(cx, cy):
+        """MOUSEEVENTF_ABSOLUTE — 가상 스크린 기준 정규화 좌표로 클릭 (멀티모니터 안전)"""
+        left, top, width, height = get_virtual_screen()
+        ax = (cx - left) * 65535 // width
+        ay = (cy - top)  * 65535 // height
+        ABSOLUTE = win32con.MOUSEEVENTF_ABSOLUTE
+        win32api.SetCursorPos((cx, cy))
+        win32api.mouse_event(ABSOLUTE | win32con.MOUSEEVENTF_MOVE,       ax, ay, 0, 0)
+        win32api.mouse_event(ABSOLUTE | win32con.MOUSEEVENTF_LEFTDOWN,   ax, ay, 0, 0)
+        time.sleep(0.05)
+        win32api.mouse_event(ABSOLUTE | win32con.MOUSEEVENTF_LEFTUP,     ax, ay, 0, 0)
+
+    # 영구 set 대신 시간 기반 쿨다운 — 창이 닫혔다 다시 열려도 재클릭 가능
+    last_clicked = {}  # key -> timestamp
+    COOLDOWN = 5.0     # 같은 위치 재클릭 허용 간격(초)
+
+    def can_click(key):
+        return time.time() - last_clicked.get(key, 0) > COOLDOWN
 
     while True:
         try:
             # ── 1차: UI Automation — TextControl '수락' 탐색 ──────────
-            # Flutter 앱은 버튼을 Button이 아닌 Text 컨트롤로 노출함.
-            # BoundingRectangle은 절대 좌표이므로 멀티모니터에서도 정확함.
-            elem = auto.TextControl(searchDepth=10, Name="수락")
+            # Flutter는 Button 타입 미사용, Text(50020) 타입으로 노출됨.
+            # searchDepth=15 로 깊은 Flutter 트리까지 탐색.
+            elem = auto.TextControl(searchDepth=15, Name="수락")
             if elem.Exists(maxSearchSeconds=0):
                 rect = elem.BoundingRectangle
                 cx = (rect.left + rect.right) // 2
                 cy = (rect.top + rect.bottom) // 2
                 key = (cx // 20, cy // 20)
-                if key not in clicked_rects:
-                    win32api.SetCursorPos((cx, cy))
-                    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-                    time.sleep(0.05)
-                    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
-                    clicked_rects.add(key)
+                if can_click(key):
+                    abs_click(cx, cy)
+                    last_clicked[key] = time.time()
                     time.sleep(0.5)
                     continue
 
@@ -128,20 +162,16 @@ def scourt_auto_accept():
             win32gui.EnumWindows(enum_top, None)
 
             for btn_hwnd in found_buttons:
-                rect = win32gui.GetWindowRect(btn_hwnd)
-                key = ((rect[0] + rect[2]) // 2 // 20, (rect[1] + rect[3]) // 2 // 20)
-                if key in clicked_rects:
-                    continue
                 try:
+                    r = win32gui.GetWindowRect(btn_hwnd)
+                    cx = (r[0] + r[2]) // 2
+                    cy = (r[1] + r[3]) // 2
+                    key = (cx // 20, cy // 20)
+                    if not can_click(key):
+                        continue
                     win32gui.SendMessage(btn_hwnd, win32con.BM_CLICK, 0, 0)
-                    rect = win32gui.GetWindowRect(btn_hwnd)
-                    cx = (rect[0] + rect[2]) // 2
-                    cy = (rect[1] + rect[3]) // 2
-                    win32api.SetCursorPos((cx, cy))
-                    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-                    time.sleep(0.05)
-                    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
-                    clicked_rects.add(key)
+                    abs_click(cx, cy)
+                    last_clicked[key] = time.time()
                 except Exception:
                     pass
 
