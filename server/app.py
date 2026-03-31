@@ -150,13 +150,16 @@ def open_browser():
 
 
 if __name__ == "__main__":
+    import logging
+    # werkzeug 개발 서버 경고 및 접속 로그 억제
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
     # DB 초기화
     database.init_db()
 
     # 1.5초 후 브라우저 자동 오픈
     threading.Timer(1.5, open_browser).start()
 
-    # socketio.run으로 서버 시작 (async_mode='threading')
     print("=" * 50)
     print("  원격지원 관리 서버 시작")
     print("  http://localhost:5000")
