@@ -17,11 +17,11 @@ import urllib.request
 import urllib.error
 
 
-def get_resource_path(relative_path):
-    """PyInstaller _MEIPASS 경로 처리"""
-    if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
+def get_exe_dir():
+    """EXE 실행 파일이 있는 디렉토리 반환 (개발 중에는 스크립트 위치)"""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
 
 
 def get_local_ip():
@@ -37,11 +37,19 @@ def get_local_ip():
 
 
 def load_config():
-    """config.ini에서 서버 설정 읽기"""
+    """EXE와 같은 폴더의 config.ini 읽기. 없으면 기본값으로 생성."""
+    config_path = os.path.join(get_exe_dir(), "config.ini")
+
+    if not os.path.exists(config_path):
+        # 최초 실행 시 config.ini 자동 생성
+        default = configparser.ConfigParser()
+        default["server"] = {"ip": "192.168.1.100", "port": "5000"}
+        with open(config_path, "w", encoding="utf-8") as f:
+            default.write(f)
+
     config = configparser.ConfigParser()
-    config_path = get_resource_path("config.ini")
     config.read(config_path, encoding="utf-8")
-    server_ip = config.get("server", "ip", fallback="127.0.0.1")
+    server_ip = config.get("server", "ip", fallback="192.168.1.100")
     server_port = config.get("server", "port", fallback="5000")
     return server_ip, server_port
 
@@ -62,8 +70,9 @@ def send_request(server_ip, server_port, data):
 
 def rustdesk_auto_accept():
     """
-    백그라운드 스레드: RustDesk 수락 버튼 자동 클릭
-    pyautogui + pygetwindow 사용
+    백그라운드 스레드: RustDesk 연결 요청 수락 버튼 자동 클릭.
+    RustDesk 창이 실제로 감지된 경우에만 클릭하며,
+    창이 없을 때는 마우스를 일절 움직이지 않는다.
     """
     try:
         import pyautogui
@@ -72,36 +81,34 @@ def rustdesk_auto_accept():
         return
 
     pyautogui.FAILSAFE = False
+    clicked_ids = set()  # 이미 수락한 창 ID 중복 클릭 방지
 
     while True:
         try:
-            # RustDesk 창 탐색
-            windows = gw.getWindowsWithTitle("RustDesk")
-            if windows:
-                for win in windows:
-                    try:
-                        if win.visible and win.width > 0 and win.height > 0:
-                            # 창 활성화 후 수락 버튼 위치 클릭 시도
-                            win.activate()
-                            time.sleep(0.3)
-                            # RustDesk 수락 버튼은 보통 창 하단 중앙 부근
-                            center_x = win.left + win.width // 2
-                            button_y = win.top + win.height - 60
-                            pyautogui.click(center_x, button_y)
-                    except Exception:
-                        pass
-            else:
-                # RustDesk 창이 없으면 화면 우상단 영역 클릭 시도
-                # (알림 팝업이 우상단에 뜨는 경우)
-                screen_w, screen_h = pyautogui.size()
+            # "연결 요청" 또는 "RustDesk" 제목의 창만 탐색
+            candidates = (
+                gw.getWindowsWithTitle("연결 요청") +
+                gw.getWindowsWithTitle("Connection Request") +
+                gw.getWindowsWithTitle("RustDesk")
+            )
+            for win in candidates:
                 try:
-                    pyautogui.click(screen_w - 150, 80)
+                    win_id = (win.left, win.top, win.width, win.height)
+                    if not win.visible or win.width <= 0 or win_id in clicked_ids:
+                        continue
+                    # 수락 버튼: RustDesk 연결 요청 창 하단 중앙
+                    win.activate()
+                    time.sleep(0.2)
+                    center_x = win.left + win.width // 2
+                    button_y = win.top + win.height - 55
+                    pyautogui.click(center_x, button_y)
+                    clicked_ids.add(win_id)
                 except Exception:
                     pass
         except Exception:
             pass
 
-        time.sleep(3)
+        time.sleep(2)
 
 
 class SupportClientApp:

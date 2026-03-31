@@ -4,7 +4,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('config.ini', '.')],
+    datas=[],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
