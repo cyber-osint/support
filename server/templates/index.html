@@ -428,7 +428,7 @@
                     <div class="info-item">
                         <strong>IP:</strong> ${escapeHtml(req.ip)}
                         &nbsp;
-                        <a href="support://connect/${req.ip}" class="connect-link" title="RustDesk로 연결">&#128279; 연결</a>
+                        <a href="support://connect/${req.ip}" class="connect-link" title="${req.ip}로 연결">&#128279; 연결</a>
                     </div>
                 </div>
                 <div class="symptom-text">${escapeHtml(req.symptom)}</div>
