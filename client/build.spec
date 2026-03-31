@@ -5,7 +5,11 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=['win32gui', 'win32con', 'win32process', 'win32api', 'psutil'],
+    hiddenimports=[
+        'win32gui', 'win32con', 'win32process', 'win32api', 'psutil',
+        'pyautogui', 'pyscreeze', 'PIL', 'PIL.Image', 'PIL.ImageDraw',
+        'PIL.ImageFont', 'PIL.ImageGrab', 'cv2', 'numpy',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
