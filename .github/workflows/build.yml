@@ -1,34 +1,42 @@
-name: Build Support Executables
+name: Build and Release
 
 on:
   push:
-    branches: [main]
+    tags:
+      - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
 
 jobs:
   build-client:
     name: Build Client EXE
     runs-on: windows-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r client/requirements.txt
+          pip install pyinstaller
 
       - name: Build with PyInstaller
         run: |
           cd client
           pyinstaller build.spec
 
-      - name: Upload artifact
+      - name: Upload client EXE
         uses: actions/upload-artifact@v4
         with:
           name: support-client
@@ -38,26 +46,63 @@ jobs:
     name: Build Server EXE
     runs-on: windows-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r server/requirements.txt
+          pip install pyinstaller
 
       - name: Build with PyInstaller
         run: |
           cd server
           pyinstaller build.spec
 
-      - name: Upload artifact
+      - name: Upload server EXE
         uses: actions/upload-artifact@v4
         with:
           name: support-server
           path: server/dist/support-server.exe
+
+  release:
+    name: Create Release
+    needs: [build-client, build-server]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download client EXE
+        uses: actions/download-artifact@v4
+        with:
+          name: support-client
+          path: dist/
+
+      - name: Download server EXE
+        uses: actions/download-artifact@v4
+        with:
+          name: support-server
+          path: dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+          name: Release ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+          body: |
+            ## 원격지원 시스템
+
+            ### 다운로드
+            - **support-client.exe** — 직원 PC에 배포하는 클라이언트
+            - **support-server.exe** — 관리자 서버 (웹 대시보드 포함)
+
+            ### 사용법
+            1. `support-server.exe` 실행 → 브라우저에서 대시보드 자동 오픈
+            2. `client/config.ini`의 서버 IP 수정 후 `support-client.exe` 배포
+          draft: false
+          prerelease: false
+          files: |
+            dist/support-client.exe
+            dist/support-server.exe
