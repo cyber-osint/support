@@ -293,6 +293,17 @@
         Object.values(elapsedTimers).forEach(t => clearInterval(t));
         elapsedTimers = {};
 
+        // 재렌더링 전 입력값 보존
+        const savedInputs = {};
+        document.querySelectorAll('[id^="handler-"]').forEach(el => {
+            const id = el.id.replace('handler-', '');
+            savedInputs[id] = { handler: el.value, notes: '' };
+        });
+        document.querySelectorAll('[id^="notes-"]').forEach(el => {
+            const id = el.id.replace('notes-', '');
+            if (savedInputs[id]) savedInputs[id].notes = el.value;
+        });
+
         const container = document.getElementById('requestList');
         let filtered = allRequests;
         if (currentFilter !== '전체') {
@@ -314,6 +325,14 @@
             html += renderCard(req);
         });
         container.innerHTML = html;
+
+        // 입력값 복원
+        Object.entries(savedInputs).forEach(([id, values]) => {
+            const handlerEl = document.getElementById(`handler-${id}`);
+            const notesEl   = document.getElementById(`notes-${id}`);
+            if (handlerEl) handlerEl.value = values.handler;
+            if (notesEl)   notesEl.value   = values.notes;
+        });
 
         // 처리중 상태의 경과시간 타이머 시작
         filtered.filter(r => r.status === '처리중').forEach(req => {
