@@ -27,7 +27,7 @@ jobs:
       - name: Build with PyInstaller
         run: |
           cd client
-          pyinstaller build.spec
+          pyinstaller --log-level DEBUG build.spec
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
