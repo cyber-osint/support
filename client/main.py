@@ -82,18 +82,25 @@ def scourt_auto_accept():
     except ImportError:
         return
 
-    clicked_handles = set()
+    clicked_rects = set()  # (cx//20, cy//20) 기반 중복 클릭 방지
 
     while True:
         try:
-            # ── 1차: UI Automation — 접근성 트리에서 '수락' 버튼 탐색 ──
-            # 화면 좌표 불필요, 모니터 개수·위치 무관
-            btn = auto.ButtonControl(searchDepth=10, Name="수락")
-            if btn.Exists(maxSearchSeconds=0):
-                handle = btn.NativeWindowHandle
-                if handle not in clicked_handles:
-                    btn.Click()
-                    clicked_handles.add(handle)
+            # ── 1차: UI Automation — TextControl '수락' 탐색 ──────────
+            # Flutter 앱은 버튼을 Button이 아닌 Text 컨트롤로 노출함.
+            # BoundingRectangle은 절대 좌표이므로 멀티모니터에서도 정확함.
+            elem = auto.TextControl(searchDepth=10, Name="수락")
+            if elem.Exists(maxSearchSeconds=0):
+                rect = elem.BoundingRectangle
+                cx = (rect.left + rect.right) // 2
+                cy = (rect.top + rect.bottom) // 2
+                key = (cx // 20, cy // 20)
+                if key not in clicked_rects:
+                    win32api.SetCursorPos((cx, cy))
+                    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                    time.sleep(0.05)
+                    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+                    clicked_rects.add(key)
                     time.sleep(0.5)
                     continue
 
@@ -121,7 +128,9 @@ def scourt_auto_accept():
             win32gui.EnumWindows(enum_top, None)
 
             for btn_hwnd in found_buttons:
-                if btn_hwnd in clicked_handles:
+                rect = win32gui.GetWindowRect(btn_hwnd)
+                key = ((rect[0] + rect[2]) // 2 // 20, (rect[1] + rect[3]) // 2 // 20)
+                if key in clicked_rects:
                     continue
                 try:
                     win32gui.SendMessage(btn_hwnd, win32con.BM_CLICK, 0, 0)
@@ -132,7 +141,7 @@ def scourt_auto_accept():
                     win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
                     time.sleep(0.05)
                     win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
-                    clicked_handles.add(btn_hwnd)
+                    clicked_rects.add(key)
                 except Exception:
                     pass
 
