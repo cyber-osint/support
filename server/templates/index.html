@@ -293,7 +293,7 @@
         Object.values(elapsedTimers).forEach(t => clearInterval(t));
         elapsedTimers = {};
 
-        // 재렌더링 전 입력값 보존
+        // 재렌더링 전 입력값 + 포커스 + 커서 위치 보존
         const savedInputs = {};
         document.querySelectorAll('[id^="handler-"]').forEach(el => {
             const id = el.id.replace('handler-', '');
@@ -303,6 +303,9 @@
             const id = el.id.replace('notes-', '');
             if (savedInputs[id]) savedInputs[id].notes = el.value;
         });
+        const focusedId = document.activeElement ? document.activeElement.id : null;
+        const focusedStart = document.activeElement ? document.activeElement.selectionStart : null;
+        const focusedEnd   = document.activeElement ? document.activeElement.selectionEnd   : null;
 
         const container = document.getElementById('requestList');
         let filtered = allRequests;
@@ -326,13 +329,22 @@
         });
         container.innerHTML = html;
 
-        // 입력값 복원
+        // 입력값 + 포커스 + 커서 위치 복원
         Object.entries(savedInputs).forEach(([id, values]) => {
             const handlerEl = document.getElementById(`handler-${id}`);
             const notesEl   = document.getElementById(`notes-${id}`);
             if (handlerEl) handlerEl.value = values.handler;
             if (notesEl)   notesEl.value   = values.notes;
         });
+        if (focusedId) {
+            const el = document.getElementById(focusedId);
+            if (el) {
+                el.focus();
+                if (focusedStart !== null) {
+                    el.setSelectionRange(focusedStart, focusedEnd);
+                }
+            }
+        }
 
         // 처리중 상태의 경과시간 타이머 시작
         filtered.filter(r => r.status === '처리중').forEach(req => {
